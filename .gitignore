@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Editor backups and swap files
+*~
+*.swp
+*.swo
+
+# Local environment files
+.env
+.env.*
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
+# Local logs
+*.log
