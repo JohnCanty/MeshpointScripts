@@ -15,7 +15,8 @@ set -Eeuo pipefail
 #    selected transport.
 # 4. Skip flashing when STATE_FILE already records an equal or newer release,
 #    unless --force is set.
-# 5. Download, erase, flash, and record the successful release metadata.
+# 5. Download, erase, flash, apply post-flash radio defaults, and record the
+#    successful release metadata.
 #
 # Successful flashes update STATE_FILE. Failures leave the previous state in
 # place, and the EXIT trap restarts SERVICE_NAME if this script stopped it.
@@ -26,6 +27,7 @@ PORT=""
 TRANSPORT="usb"
 DWELL_SECS="10"
 PRECONNECT_SETTLE_SECS="2"
+POST_REBOOT_SETTLE_SECS="8"
 ERASE_BAUD="115200"
 WRITE_BAUD="460800"
 VENV="${HOME}/meshcore-venv"
@@ -204,7 +206,7 @@ ESPT="${VENV}/bin/esptool"
 [[ -x "$ESPT" ]] || die "esptool not found at $ESPT"
 
 log "Starting MeshCore companion updater"
-log "PORT=$PORT TRANSPORT=$TRANSPORT DWELL_SECS=$DWELL_SECS PRECONNECT_SETTLE_SECS=$PRECONNECT_SETTLE_SECS"
+log "PORT=$PORT TRANSPORT=$TRANSPORT DWELL_SECS=$DWELL_SECS PRECONNECT_SETTLE_SECS=$PRECONNECT_SETTLE_SECS POST_REBOOT_SETTLE_SECS=$POST_REBOOT_SETTLE_SECS"
 log "STATE_FILE=$STATE_FILE FORCE=$FORCE LOG_FILE=$LOG_FILE"
 log "esptool reset strategy: --before default-reset --after hard-reset"
 
@@ -267,6 +269,8 @@ fi
 
 # ---- Flash ----
 if [[ "$DO_FLASH" == "1" ]]; then
+  MESHCLI="${VENV}/bin/meshcli"
+  [[ -x "$MESHCLI" ]] || die "meshcli not found at $MESHCLI"
 
   log "Downloading $BIN_NAME..."
   retry 3 5 run curl -fL -o "${WORKDIR}/${BIN_NAME}" "$BIN_URL" \
@@ -296,7 +300,22 @@ if [[ "$DO_FLASH" == "1" ]]; then
     0x0 "${WORKDIR}/${BIN_NAME}" \
     || die "Write failed"
 
+  log "Configuring radio defaults for US 915 MHz"
+  retry 5 3 run "$MESHCLI" -s "$PORT" set radio "910.525,250,11,5" \
+    || die "Failed to apply radio defaults"
+
+  log "Rebooting radio to apply settings"
+  retry 3 3 run "$MESHCLI" -s "$PORT" reboot \
+    || die "Failed to reboot radio after applying settings"
+
+  log "Waiting ${POST_REBOOT_SETTLE_SECS}s for the radio to return"
+  sleep "$POST_REBOOT_SETTLE_SECS"
+
+  log "Reading back radio settings"
+  retry 5 3 run "$MESHCLI" -s "$PORT" get radio \
+    || die "Failed to read radio settings after reboot"
+
   write_state "$LATEST_ID" "$LATEST_DATE" "$LATEST_TAG" "$BIN_NAME" "$PORT"
-  log "SUCCESS: flashed $BIN_NAME to $PORT ; state written to $STATE_FILE"
+  log "SUCCESS: flashed $BIN_NAME to $PORT, applied radio defaults, and wrote state to $STATE_FILE"
 
 fi
