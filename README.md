@@ -41,7 +41,7 @@ If you choose different paths, edit the `VENV` variable near the top of the corr
 
 ```bash
 python3 -m venv ~/meshcore-venv
-~/meshcore-venv/bin/pip install --upgrade pip wheel esptool
+~/meshcore-venv/bin/pip install --upgrade pip wheel esptool meshcore-cli
 # Install the MeshCore CLI package that provides `meshcli` into the same venv.
 ```
 
@@ -91,7 +91,7 @@ What it does:
 - Verifies the attached device responds as an `esp32s3`.
 - Queries GitHub for the newest MeshCore Companion Firmware release matching the requested transport.
 - Skips flashing if the recorded state file already reflects an equal or newer published release, unless `--force` is used.
-- Downloads, erases, flashes, applies the US 915 MHz radio defaults, verifies them after reboot, then writes release metadata to a local JSON state file.
+- Downloads, erases, flashes, applies the selected MeshCore radio preset or custom radio tuple, verifies it after reboot, then writes release metadata to a local JSON state file.
 - Attempts to restart the stopped service on exit.
 
 Default paths and settings:
@@ -100,19 +100,37 @@ Default paths and settings:
 - Log file: `~/meshcore_update.log`
 - State file: `~/.meshcore_companion_last_flash.json`
 - Default transport: `usb`
+- Default radio preset: `us915-legacy` (`910.525,250,11,5`)
 - Default service: `meshpoint`
+
+Common radio presets:
+
+- `us915-legacy`: `910.525,250,11,5` (backward-compatible default)
+- `usa-canada-recommended`: `910.525,62.5,7,5`
+- `eu-uk-narrow`: `869.618,62.5,8,8`
+- `australia-narrow`: `916.575,62.5,7,8`
+- `new-zealand-narrow`: `917.375,62.5,7,5`
+- `eu-433-narrow`: `433.650,62.5,8,8`
+- `vietnam-narrow`: `920.250,62.5,8,5`
+
+The script also includes the wider MeshCore community preset list for Australia, Switzerland, Czech Republic, Portugal, and legacy variants. Run `./update_meshcore.sh --list-radio-presets` to print the full supported preset table.
 
 Usage:
 
 ```bash
 ./update_meshcore.sh /dev/ttyUSB0
+./update_meshcore.sh /dev/ttyUSB0 --radio-preset eu-uk-narrow
+./update_meshcore.sh /dev/ttyUSB0 --radio-params 869.618,62.5,8,8
 ./update_meshcore.sh /dev/ttyUSB0 --transport ble --force
 ./update_meshcore.sh /dev/ttyUSB0 --service meshpoint --log-file /var/log/meshcore_update.log
+./update_meshcore.sh --list-radio-presets
 ```
 
 Notes:
 
 - `esptool` and `meshcli` must exist in `~/meshcore-venv/bin/` unless you edit the script.
+- Preset names mostly mirror the MeshCore community presets published for `config.meshcore.io`; `us915-legacy` is kept as a local backward-compatible default for the original US tuple you were already using.
+- Use `--radio-params` if you need a tuple that is not in the built-in list.
 - The script uses GitHub release metadata timestamps to decide whether flashing is needed.
 
 ### [update_meshtastic.sh](./update_meshtastic.sh)
