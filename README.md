@@ -37,11 +37,12 @@ If you choose different paths, edit the `VENV` variable near the top of the corr
 
 ### MeshCore Requirements
 
-`update_meshcore.sh` expects `esptool` in `~/meshcore-venv/bin/esptool`.
+`update_meshcore.sh` expects both `esptool` and `meshcli` in `~/meshcore-venv/bin/`.
 
 ```bash
 python3 -m venv ~/meshcore-venv
 ~/meshcore-venv/bin/pip install --upgrade pip wheel esptool
+# Install the MeshCore CLI package that provides `meshcli` into the same venv.
 ```
 
 ### Meshtastic Requirements
@@ -72,6 +73,7 @@ After creating the environments, verify the expected executables exist:
 
 ```bash
 ~/meshcore-venv/bin/esptool version
+~/meshcore-venv/bin/meshcli --help
 ~/meshtastic-venv/bin/esptool version
 ~/meshtastic-venv/bin/meshtastic --help
 sudo -u reticulum /var/lib/reticulum/venv/bin/rnodeconf --help
@@ -89,7 +91,7 @@ What it does:
 - Verifies the attached device responds as an `esp32s3`.
 - Queries GitHub for the newest MeshCore Companion Firmware release matching the requested transport.
 - Skips flashing if the recorded state file already reflects an equal or newer published release, unless `--force` is used.
-- Downloads, erases, flashes, then writes release metadata to a local JSON state file.
+- Downloads, erases, flashes, applies the US 915 MHz radio defaults, verifies them after reboot, then writes release metadata to a local JSON state file.
 - Attempts to restart the stopped service on exit.
 
 Default paths and settings:
@@ -110,7 +112,7 @@ Usage:
 
 Notes:
 
-- `esptool` must exist at `~/meshcore-venv/bin/esptool` unless you edit the script.
+- `esptool` and `meshcli` must exist in `~/meshcore-venv/bin/` unless you edit the script.
 - The script uses GitHub release metadata timestamps to decide whether flashing is needed.
 
 ### [update_meshtastic.sh](./update_meshtastic.sh)
