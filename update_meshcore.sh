@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # Intended environment:
 # - Linux host with systemd managing the service that normally owns the port
 # - Serial device exposed at the path passed as the first argument
-# - curl, lsof, logger, python3, sudo, and esptool available
+# - curl, lsof, logger, python3, sudo, esptool, and meshcli available
 #
 # Workflow:
 # 1. Stop the owning service so the serial port is free.
@@ -15,8 +15,8 @@ set -Eeuo pipefail
 #    selected transport.
 # 4. Skip flashing when STATE_FILE already records an equal or newer release,
 #    unless --force is set.
-# 5. Download, erase, flash, apply post-flash radio defaults, and record the
-#    successful release metadata.
+# 5. Download, erase, flash, apply the selected post-flash radio settings, and
+#    record the successful release metadata.
 #
 # Successful flashes update STATE_FILE. Failures leave the previous state in
 # place, and the EXIT trap restarts SERVICE_NAME if this script stopped it.
@@ -30,12 +30,17 @@ PRECONNECT_SETTLE_SECS="2"
 POST_REBOOT_SETTLE_SECS="8"
 ERASE_BAUD="115200"
 WRITE_BAUD="460800"
+RADIO_PRESET="us915-legacy"
+RADIO_PARAMS=""
 VENV="${HOME}/meshcore-venv"
 LOG_FILE="${HOME}/meshcore_update.log"
 STATE_FILE="${HOME}/.meshcore_companion_last_flash.json"
 SERVICE_NAME="meshpoint"
 FORCE="0"
 SERVICE_STOPPED="0"
+RADIO_SETTINGS_NAME=""
+RADIO_SETTINGS_LABEL=""
+RADIO_SETTINGS_TUPLE=""
 
 usage() {
   cat <<EOF
@@ -44,11 +49,17 @@ Usage:
 
 Examples:
   $0 /dev/ttyUSB0
+  $0 /dev/ttyUSB0 --radio-preset eu-uk-narrow
+  $0 /dev/ttyUSB0 --radio-params 910.525,62.5,7,5
   $0 /dev/ttyUSB0 --transport ble --force
   $0 /dev/ttyUSB0 --service meshpoint --log-file /var/log/meshcore_update.log
+  $0 --list-radio-presets
 
 Options:
   --transport usb|ble       Firmware transport variant (default: usb)
+  --radio-preset NAME       Radio preset applied after flash (default: us915-legacy)
+  --radio-params SPEC       Custom radio tuple freq,bw,sf,cr; overrides --radio-preset
+  --list-radio-presets      Print supported radio presets and exit
   --service NAME            systemd service that owns the port (default: meshpoint)
   --force                   Flash even if state file shows firmware is current
   --log-file PATH           Log file path (default: ~/meshcore_update.log)
@@ -56,6 +67,7 @@ Options:
 Requirements:
   - Linux host with systemd and sudo permissions to stop/start [--service]
   - ${VENV}/bin/esptool present and executable
+  - ${VENV}/bin/meshcli present and executable
   - curl, lsof, logger, and python3 available in PATH
 
 Files:
@@ -66,8 +78,153 @@ Behavior:
   - Stops [--service] if running and always attempts to restart it on exit.
   - Fetches the newest Companion Firmware asset matching the selected transport.
   - Flashes only if the release is newer than the stored state, unless --force.
-  - Writes release metadata to the state file after a successful flash.
+  - Applies the selected radio preset or custom tuple, reboots, and verifies the radio settings.
+  - Writes release metadata to the state file after a successful flash and radio verification.
 EOF
+}
+
+list_radio_presets() {
+  cat <<'EOF'
+Supported radio presets:
+  us915-legacy             910.525,250,11,5  US 915 (Legacy default)
+  usa-canada-recommended  910.525,62.5,7,5   USA/Canada (Recommended)
+  eu-uk-narrow            869.618,62.5,8,8   EU/UK (Narrow)
+  eu-uk-deprecated        869.525,250,11,5   EU/UK (Deprecated)
+  australia               915.800,250,10,5   Australia
+  australia-narrow        916.575,62.5,7,8   Australia (Narrow)
+  australia-mid           915.075,125,9,5    Australia (Mid)
+  australia-sa-wa         923.125,62.5,8,8   Australia: SA, WA
+  australia-qld           923.125,62.5,8,5   Australia: QLD
+  new-zealand             917.375,250,11,5   New Zealand
+  new-zealand-narrow      917.375,62.5,7,5   New Zealand (Narrow)
+  switzerland             869.618,62.5,8,8   Switzerland
+  czech-republic-narrow   869.432,62.5,7,5   Czech Republic (Narrow)
+  portugal-868            869.618,62.5,7,6   Portugal 868
+  portugal-433            433.375,62.5,9,6   Portugal 433
+  eu-433-long-range       433.650,250,11,5   EU 433MHz (Long Range)
+  eu-433-narrow           433.650,62.5,8,8   EU 433MHz (Narrow)
+  vietnam-narrow          920.250,62.5,8,5   Vietnam (Narrow)
+  vietnam-deprecated      920.250,250,11,5   Vietnam (Deprecated)
+
+Aliases:
+  us915    -> us915-legacy
+  us915-narrow -> usa-canada-recommended
+  eu868    -> eu-uk-narrow
+  au915    -> australia-narrow
+  nz915    -> new-zealand-narrow
+  eu433    -> eu-433-narrow
+EOF
+}
+
+validate_radio_params() {
+  local value="$1"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?,[0-9]+([.][0-9]+)?,[0-9]+,[0-9]+$ ]]
+}
+
+resolve_radio_preset() {
+  local preset_key
+  preset_key="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+  case "$preset_key" in
+    us915-legacy|us915|us915-wide)
+      RADIO_SETTINGS_NAME="us915-legacy"
+      RADIO_SETTINGS_LABEL="US 915 (Legacy)"
+      RADIO_SETTINGS_TUPLE="910.525,250,11,5"
+      ;;
+    usa-canada-recommended|us915-narrow|usa-canada|us-canada)
+      RADIO_SETTINGS_NAME="usa-canada-recommended"
+      RADIO_SETTINGS_LABEL="USA/Canada (Recommended)"
+      RADIO_SETTINGS_TUPLE="910.525,62.5,7,5"
+      ;;
+    eu-uk-narrow|eu868)
+      RADIO_SETTINGS_NAME="eu-uk-narrow"
+      RADIO_SETTINGS_LABEL="EU/UK (Narrow)"
+      RADIO_SETTINGS_TUPLE="869.618,62.5,8,8"
+      ;;
+    eu-uk-deprecated)
+      RADIO_SETTINGS_NAME="eu-uk-deprecated"
+      RADIO_SETTINGS_LABEL="EU/UK (Deprecated)"
+      RADIO_SETTINGS_TUPLE="869.525,250,11,5"
+      ;;
+    australia)
+      RADIO_SETTINGS_NAME="australia"
+      RADIO_SETTINGS_LABEL="Australia"
+      RADIO_SETTINGS_TUPLE="915.800,250,10,5"
+      ;;
+    australia-narrow|au915)
+      RADIO_SETTINGS_NAME="australia-narrow"
+      RADIO_SETTINGS_LABEL="Australia (Narrow)"
+      RADIO_SETTINGS_TUPLE="916.575,62.5,7,8"
+      ;;
+    australia-mid)
+      RADIO_SETTINGS_NAME="australia-mid"
+      RADIO_SETTINGS_LABEL="Australia (Mid)"
+      RADIO_SETTINGS_TUPLE="915.075,125,9,5"
+      ;;
+    australia-sa-wa)
+      RADIO_SETTINGS_NAME="australia-sa-wa"
+      RADIO_SETTINGS_LABEL="Australia: SA, WA"
+      RADIO_SETTINGS_TUPLE="923.125,62.5,8,8"
+      ;;
+    australia-qld)
+      RADIO_SETTINGS_NAME="australia-qld"
+      RADIO_SETTINGS_LABEL="Australia: QLD"
+      RADIO_SETTINGS_TUPLE="923.125,62.5,8,5"
+      ;;
+    new-zealand)
+      RADIO_SETTINGS_NAME="new-zealand"
+      RADIO_SETTINGS_LABEL="New Zealand"
+      RADIO_SETTINGS_TUPLE="917.375,250,11,5"
+      ;;
+    new-zealand-narrow|nz915)
+      RADIO_SETTINGS_NAME="new-zealand-narrow"
+      RADIO_SETTINGS_LABEL="New Zealand (Narrow)"
+      RADIO_SETTINGS_TUPLE="917.375,62.5,7,5"
+      ;;
+    switzerland)
+      RADIO_SETTINGS_NAME="switzerland"
+      RADIO_SETTINGS_LABEL="Switzerland"
+      RADIO_SETTINGS_TUPLE="869.618,62.5,8,8"
+      ;;
+    czech-republic-narrow)
+      RADIO_SETTINGS_NAME="czech-republic-narrow"
+      RADIO_SETTINGS_LABEL="Czech Republic (Narrow)"
+      RADIO_SETTINGS_TUPLE="869.432,62.5,7,5"
+      ;;
+    portugal-868)
+      RADIO_SETTINGS_NAME="portugal-868"
+      RADIO_SETTINGS_LABEL="Portugal 868"
+      RADIO_SETTINGS_TUPLE="869.618,62.5,7,6"
+      ;;
+    portugal-433)
+      RADIO_SETTINGS_NAME="portugal-433"
+      RADIO_SETTINGS_LABEL="Portugal 433"
+      RADIO_SETTINGS_TUPLE="433.375,62.5,9,6"
+      ;;
+    eu-433-long-range)
+      RADIO_SETTINGS_NAME="eu-433-long-range"
+      RADIO_SETTINGS_LABEL="EU 433MHz (Long Range)"
+      RADIO_SETTINGS_TUPLE="433.650,250,11,5"
+      ;;
+    eu-433-narrow|eu433)
+      RADIO_SETTINGS_NAME="eu-433-narrow"
+      RADIO_SETTINGS_LABEL="EU 433MHz (Narrow)"
+      RADIO_SETTINGS_TUPLE="433.650,62.5,8,8"
+      ;;
+    vietnam-narrow)
+      RADIO_SETTINGS_NAME="vietnam-narrow"
+      RADIO_SETTINGS_LABEL="Vietnam (Narrow)"
+      RADIO_SETTINGS_TUPLE="920.250,62.5,8,5"
+      ;;
+    vietnam-deprecated)
+      RADIO_SETTINGS_NAME="vietnam-deprecated"
+      RADIO_SETTINGS_LABEL="Vietnam (Deprecated)"
+      RADIO_SETTINGS_TUPLE="920.250,250,11,5"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 log() {
@@ -180,9 +337,17 @@ with open(sys.argv[6], "w") as f:
 }
 
 # ---- Arg Parsing ----
-if [[ $# -ge 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
-  usage
-  exit 0
+if [[ $# -ge 1 ]]; then
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --list-radio-presets)
+      list_radio_presets
+      exit 0
+      ;;
+  esac
 fi
 
 [[ $# -ge 1 && "${1:0:1}" != "-" ]] || { usage; exit 2; }
@@ -191,6 +356,9 @@ PORT="$1"; shift
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --transport) TRANSPORT="$2"; shift 2 ;;
+    --radio-preset) RADIO_PRESET="$2"; shift 2 ;;
+    --radio-params) RADIO_PARAMS="$2"; shift 2 ;;
+    --list-radio-presets) list_radio_presets; exit 0 ;;
     --service)   SERVICE_NAME="$2"; shift 2 ;;
     --force)     FORCE="1"; shift ;;
     --log-file)  LOG_FILE="$2"; shift 2 ;;
@@ -205,8 +373,19 @@ done
 ESPT="${VENV}/bin/esptool"
 [[ -x "$ESPT" ]] || die "esptool not found at $ESPT"
 
+if [[ -n "$RADIO_PARAMS" ]]; then
+  validate_radio_params "$RADIO_PARAMS" \
+    || die "Invalid --radio-params value: $RADIO_PARAMS (expected freq,bw,sf,cr)"
+  RADIO_SETTINGS_NAME="custom"
+  RADIO_SETTINGS_LABEL="Custom"
+  RADIO_SETTINGS_TUPLE="$RADIO_PARAMS"
+else
+  resolve_radio_preset "$RADIO_PRESET" \
+    || die "Unknown --radio-preset: $RADIO_PRESET (use --list-radio-presets to see supported values)"
+fi
+
 log "Starting MeshCore companion updater"
-log "PORT=$PORT TRANSPORT=$TRANSPORT DWELL_SECS=$DWELL_SECS PRECONNECT_SETTLE_SECS=$PRECONNECT_SETTLE_SECS POST_REBOOT_SETTLE_SECS=$POST_REBOOT_SETTLE_SECS"
+log "PORT=$PORT TRANSPORT=$TRANSPORT RADIO_PRESET=$RADIO_SETTINGS_NAME RADIO_PARAMS=$RADIO_SETTINGS_TUPLE DWELL_SECS=$DWELL_SECS PRECONNECT_SETTLE_SECS=$PRECONNECT_SETTLE_SECS POST_REBOOT_SETTLE_SECS=$POST_REBOOT_SETTLE_SECS"
 log "STATE_FILE=$STATE_FILE FORCE=$FORCE LOG_FILE=$LOG_FILE"
 log "esptool reset strategy: --before default-reset --after hard-reset"
 
@@ -300,9 +479,9 @@ if [[ "$DO_FLASH" == "1" ]]; then
     0x0 "${WORKDIR}/${BIN_NAME}" \
     || die "Write failed"
 
-  log "Configuring radio defaults for US 915 MHz"
-  retry 5 3 run "$MESHCLI" -s "$PORT" set radio "910.525,250,11,5" \
-    || die "Failed to apply radio defaults"
+  log "Configuring radio settings (${RADIO_SETTINGS_LABEL}: ${RADIO_SETTINGS_TUPLE})"
+  retry 5 3 run "$MESHCLI" -s "$PORT" set radio "$RADIO_SETTINGS_TUPLE" \
+    || die "Failed to apply radio settings"
 
   log "Rebooting radio to apply settings"
   retry 3 3 run "$MESHCLI" -s "$PORT" reboot \
@@ -316,6 +495,6 @@ if [[ "$DO_FLASH" == "1" ]]; then
     || die "Failed to read radio settings after reboot"
 
   write_state "$LATEST_ID" "$LATEST_DATE" "$LATEST_TAG" "$BIN_NAME" "$PORT"
-  log "SUCCESS: flashed $BIN_NAME to $PORT, applied radio defaults, and wrote state to $STATE_FILE"
+  log "SUCCESS: flashed $BIN_NAME to $PORT, applied radio settings, and wrote state to $STATE_FILE"
 
 fi
