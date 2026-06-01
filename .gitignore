@@ -21,8 +21,5 @@ __pycache__/
 # Local logs
 *.log
 
-# Specific Files
-github_release_common.sh
-
 # Workspace Files
 *.code-workspace
