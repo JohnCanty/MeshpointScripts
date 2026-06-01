@@ -165,14 +165,14 @@ latest_tag="$(github_latest_tag_matching "meshtastic/firmware" '^v')"
 published_at="$(github_release_published_at "meshtastic/firmware" "$latest_tag")"
 
 IFS=$'\t' read -r asset_url asset_name \
-	< <(github_release_asset_info \
-		"meshtastic/firmware" \
-		"$latest_tag" \
-		'^firmware-esp32s3-.*\.zip$' \
-		last)
+    < <(github_release_asset_info \
+        "meshtastic/firmware" \
+        "$latest_tag" \
+        '^firmware-esp32s3-.*\.zip$' \
+        last)
 
 printf 'tag=%s\npublished_at=%s\nasset=%s\nurl=%s\n' \
-	"$latest_tag" "$published_at" "$asset_name" "$asset_url"
+    "$latest_tag" "$published_at" "$asset_name" "$asset_url"
 ```
 
 Single-call example:
@@ -181,10 +181,10 @@ Single-call example:
 source ./github_release_common.sh
 
 IFS=$'\t' read -r release_ref published_at tag_name asset_url asset_name \
-	< <(github_latest_release_asset_info \
-		"meshcore-dev/MeshCore" \
-		'^companion-v' \
-		'^Heltec_v3_companion_radio_usb-.*-merged\.bin$')
+    < <(github_latest_release_asset_info \
+        "meshcore-dev/MeshCore" \
+        '^companion-v' \
+        '^Heltec_v3_companion_radio_usb-.*-merged\.bin$')
 ```
 
 Notes:
