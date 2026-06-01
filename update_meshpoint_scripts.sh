@@ -44,6 +44,7 @@ CHECK_ONLY="0"
 REMOTE_REF="FETCH_HEAD"
 TEMP_DIR=""
 UPDATED_FILES=()
+MISSING_REMOTE_FILES=()
 TARGET_FILES=(
   README.md
   github_release_common.sh
@@ -95,6 +96,7 @@ Location:
 
 Behavior:
   - Fetches the requested branch into FETCH_HEAD using a public HTTPS URL.
+  - Refuses partial updates if the remote branch is missing any managed files.
   - Refuses to overwrite locally modified managed files unless --force is set.
   - Updates this script last so it can safely refresh itself in place.
 EOF
@@ -174,6 +176,22 @@ fetch_remote_branch() {
 remote_file_exists() {
   local file="$1"
   git -C "$REPO_DIR" cat-file -e "${REMOTE_REF}:${file}" 2>/dev/null
+}
+
+validate_remote_targets_present() {
+  local file
+
+  MISSING_REMOTE_FILES=()
+  for file in "${TARGET_FILES[@]}"; do
+    if ! remote_file_exists "$file"; then
+      MISSING_REMOTE_FILES+=("$file")
+    fi
+  done
+
+  if (( ${#MISSING_REMOTE_FILES[@]} > 0 )); then
+    log "ERROR: ${BRANCH_NAME} at ${REPO_URL} is missing managed files: ${MISSING_REMOTE_FILES[*]}"
+    die "Refusing partial self-update from an incomplete remote branch"
+  fi
 }
 
 ensure_target_is_safe() {
@@ -334,6 +352,7 @@ TEMP_DIR="$(mktemp -d)"
 
 log "Starting MeshpointScripts self-update from ${REPO_URL} (${BRANCH_NAME})"
 fetch_remote_branch
+validate_remote_targets_present
 apply_updates
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
