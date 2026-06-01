@@ -32,7 +32,7 @@ set -Eeuo pipefail
 # - Keep argument quoting intact inside capture_logged() so commands with spaces survive unchanged.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/Users/johncanty/Documents/PlatformIO/Projects/MeshpointScripts/tui_common.sh
+# shellcheck source=./tui_common.sh
 source "${SCRIPT_DIR}/tui_common.sh"
 
 TAG="reticulum-update"

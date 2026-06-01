@@ -37,9 +37,9 @@ set -Eeuo pipefail
 # - The shared TUI helpers print prompts to stderr and return values on stdout so command substitution stays clean.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/Users/johncanty/Documents/PlatformIO/Projects/MeshpointScripts/tui_common.sh
+# shellcheck source=./tui_common.sh
 source "${SCRIPT_DIR}/tui_common.sh"
-# shellcheck source=/Users/johncanty/Documents/PlatformIO/Projects/MeshpointScripts/github_release_common.sh
+# shellcheck source=./github_release_common.sh
 source "${SCRIPT_DIR}/github_release_common.sh"
 
 TAG="meshcore-update"

@@ -4,12 +4,12 @@ set -Eeuo pipefail
 # MeshpointScripts self-updater.
 #
 # Operator summary:
-# - Run inside a clone of this repository to refresh the managed scripts from the public main branch.
+# - Run inside a clone of this repository, typically ~/MeshpointScripts, to refresh the managed scripts from the public main branch.
 # - The recommended operator entry point is ./update.sh, which forwards to this script.
 # - Use --check to see which files would change before anything is written.
 #
 # Intended environment:
-# - Local clone of this repository with git metadata available.
+# - Local clone of this repository, typically at ~/MeshpointScripts, with git metadata available.
 # - Public network access to the repository's GitHub remote over HTTPS.
 # - Standard Unix tools available: cmp, git, install, mkdir, and tee.
 #
@@ -61,6 +61,8 @@ Usage:
   $0 [OPTIONS]
 
 Examples:
+  cd ~/MeshpointScripts && ./update.sh
+  cd ~/MeshpointScripts && ./update.sh --check
   ./update.sh
   ./update.sh --check
   $0 --check
@@ -87,6 +89,9 @@ Managed files:
   update_meshtastic.sh
   update_reticulum.sh
   update_meshpoint_scripts.sh
+
+Location:
+  Run this script from inside your local clone, for example ~/MeshpointScripts
 
 Behavior:
   - Fetches the requested branch into FETCH_HEAD using a public HTTPS URL.
@@ -313,7 +318,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$REPO_DIR" ]] || die "This script must be run from inside a git clone of MeshpointScripts"
+[[ -n "$REPO_DIR" ]] || die "This script must be run from inside a git clone of MeshpointScripts (for example ~/MeshpointScripts)"
 [[ -d "$REPO_DIR/.git" || -f "$REPO_DIR/.git" ]] || die "Could not find git metadata for ${REPO_DIR}"
 
 if [[ -n "$LOG_FILE" ]]; then

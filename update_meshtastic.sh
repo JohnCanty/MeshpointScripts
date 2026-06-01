@@ -37,9 +37,9 @@ set -Eeuo pipefail
 # - Release discovery is intentionally anonymous and does not depend on GitHub API tokens.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/Users/johncanty/Documents/PlatformIO/Projects/MeshpointScripts/tui_common.sh
+# shellcheck source=./tui_common.sh
 source "${SCRIPT_DIR}/tui_common.sh"
-# shellcheck source=/Users/johncanty/Documents/PlatformIO/Projects/MeshpointScripts/github_release_common.sh
+# shellcheck source=./github_release_common.sh
 source "${SCRIPT_DIR}/github_release_common.sh"
 
 TAG="meshtastic-update"

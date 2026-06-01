@@ -2,6 +2,15 @@
 
 Small Bash utilities for updating the radio firmware and related host-side components used by a Meshpoint setup.
 
+Clone the repository into `~/MeshpointScripts` so the examples below match the expected checkout location:
+
+```bash
+git clone https://github.com/JohnCanty/MeshpointScripts.git ~/MeshpointScripts
+cd ~/MeshpointScripts
+```
+
+Unless noted otherwise, the command examples below assume your current working directory is `~/MeshpointScripts`.
+
 This repository currently contains four primary updater scripts plus one compatibility entry point:
 
 | Script | Purpose |
@@ -357,7 +366,7 @@ Notes:
 
 ## Quick Start
 
-1. Refresh your local script copies from the public `main` branch when needed:
+1. From `~/MeshpointScripts`, refresh your local script copies from the public `main` branch when needed:
 
 ```bash
 ./update.sh --check
